@@ -75,16 +75,12 @@ impl fmt::Debug for TestMessage {
 #[derive(Deserialize, Debug)]
 struct TestVector {
     name: String,
-    pattern: String,
-    dh: String,
-    cipher: String,
-    hash: String,
-    preshared_key: Option<HexBytes>,
-    init_prologue: HexBytes,
+    init_psk: Option<HexBytes>,
+    init_prologue: Option<HexBytes>,
     init_static: Option<HexBytes>,
     init_remote_static: Option<HexBytes>,
     init_ephemeral: Option<HexBytes>,
-    resp_prologue: HexBytes,
+    resp_prologue: Option<HexBytes>,
     resp_static: Option<HexBytes>,
     resp_remote_static: Option<HexBytes>,
     resp_ephemeral: Option<HexBytes>,
@@ -102,7 +98,7 @@ fn build_session_pair(vector: &TestVector) -> Result<(Session, Session), NoiseEr
     let mut resp_builder = NoiseBuilder::new(params.clone());
 
     if params.handshake.is_psk() {
-        match (params.handshake.modifiers.list[0], &vector.preshared_key) {
+        match (params.handshake.modifiers.list[0], &vector.init_psk) {
             (HandshakeModifier::Psk(n), &Some(ref psk)) => {
                 init_builder = init_builder.psk(n, &*psk);
                 resp_builder = resp_builder.psk(n, &*psk);
@@ -131,9 +127,15 @@ fn build_session_pair(vector: &TestVector) -> Result<(Session, Session), NoiseEr
     if let Some(ref resp_e) = vector.resp_ephemeral {
         resp_builder = resp_builder.fixed_ephemeral_key_for_testing_only(&*resp_e);
     }
+    if let Some(ref init_prologue) = vector.init_prologue {
+        init_builder = init_builder.prologue(&*init_prologue);
+    }
+    if let Some(ref resp_prologue) = vector.resp_prologue {
+        resp_builder = resp_builder.prologue(&*resp_prologue);
+    }
 
-    let init = init_builder.prologue(&vector.init_prologue).build_initiator()?;
-    let resp = resp_builder.prologue(&vector.resp_prologue).build_responder()?;
+    let init = init_builder.build_initiator()?;
+    let resp = resp_builder.build_responder()?;
 
     Ok((init, resp))
 }
@@ -153,7 +155,7 @@ fn confirm_message_vectors(mut init: Session, mut resp: Session, messages_vec: &
         recv.read_message(&sendbuf[..len], &mut recvbuf).map_err(|_| format!("read_message failed on message {}", i))?;
         if &sendbuf[..len] != &(*message.ciphertext)[..] {
             let mut s = String::new();
-            s.push_str(&format!("message {}", i));
+            s.push_str(&format!("message {}\n", i));
             s.push_str(&format!("plaintext: {}\n", message.payload.to_hex()));
             s.push_str(&format!("expected:  {}\n", message.ciphertext.to_hex()));
             s.push_str(&format!("actual:    {}", &sendbuf[..len].to_owned().to_hex()));
@@ -196,7 +198,14 @@ fn test_vectors_from_json(json: &str) {
             ignored += 1;
             continue;
         }
-        let (init, resp) = build_session_pair(&vector).unwrap();
+        let (init, resp) = match build_session_pair(&vector) {
+            Ok((init, resp)) => (init, resp),
+            Err(e) => {
+                println!("failure building session");
+                println!("vector: {:?}", &vector);
+                panic!("FAIL");
+            }
+        };
 
         match confirm_message_vectors(init, resp, &vector.messages, params.handshake.pattern.is_oneway()) {
             Ok(_) => {
