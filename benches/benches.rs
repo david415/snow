@@ -310,3 +310,11 @@ fn bench_builder_skeleton(b: &mut Bencher) {
             .build_initiator().unwrap();
     });
 }
+
+#[bench]
+fn bench_key_generation(b: &mut Bencher) {
+    let mut builder = NoiseBuilder::new("Noise_XX_25519_ChaChaPoly_SHA256".parse().unwrap());
+    b.iter(move || {
+        let _keypair = builder.generate_keypair().unwrap();
+    })
+}

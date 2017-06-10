@@ -272,23 +272,23 @@ fn test_NNpsk0_sanity_session() {
 #[test]
 fn test_XXpsk1_sanity_session() {
     let params: NoiseParams = "Noise_XXpsk1_25519_AESGCM_SHA256".parse().unwrap();
-    let b_i = NoiseBuilder::new(params.clone());
-    let b_r = NoiseBuilder::new(params);
-    let static_i = b_i.generate_private_key().unwrap();
-    let static_r = b_r.generate_private_key().unwrap();
+    let mut b_i = NoiseBuilder::new(params.clone());
+    let mut b_r = NoiseBuilder::new(params);
+    let static_i = b_i.generate_keypair().unwrap();
+    let static_r = b_r.generate_keypair().unwrap();
     let mut static_i_dh: Dh25519 = Default::default();
     let mut static_r_dh: Dh25519 = Default::default();
-    static_i_dh.set(&static_i);
-    static_r_dh.set(&static_r);
+    static_i_dh.set(&static_i.private);
+    static_r_dh.set(&static_r.private);
     let mut h_i = b_i
         .psk(1, &[32u8; 32])
-        .local_private_key(&static_i)
+        .local_private_key(&static_i.private)
         .remote_public_key(static_r_dh.pubkey())
         .build_initiator()
         .unwrap();
     let mut h_r = b_r
         .psk(1, &[32u8; 32])
-        .local_private_key(&static_r)
+        .local_private_key(&static_r.private)
         .remote_public_key(static_i_dh.pubkey())
         .build_responder()
         .unwrap();
@@ -401,12 +401,12 @@ fn test_oneway_initiator_enforcements() {
 #[test]
 fn test_oneway_responder_enforcements() {
     let params: NoiseParams = "Noise_N_25519_AESGCM_SHA256".parse().unwrap();
-    let resp_builder = NoiseBuilder::new(params.clone());
-    let rpk = resp_builder.generate_private_key().unwrap();
+    let mut resp_builder = NoiseBuilder::new(params.clone());
+    let rpk = resp_builder.generate_keypair().unwrap();
     let mut rk: Dh25519 = Dh25519::default();
-    rk.set(&rpk);
+    rk.set(&rpk.private);
 
-    let mut resp = resp_builder.local_private_key(&rpk).build_responder().unwrap();
+    let mut resp = resp_builder.local_private_key(&rpk.private).build_responder().unwrap();
     let mut init = NoiseBuilder::new(params).remote_public_key(rk.pubkey()).build_initiator().unwrap();
 
     let mut buffer_resp = [0u8; 65535];
@@ -419,4 +419,5 @@ fn test_oneway_responder_enforcements() {
     assert!(init.read_message(&[0u8; 1024], &mut buffer_init).is_err());
     assert!(resp.write_message(&[0u8; 1024], &mut buffer_resp).is_err());
 }
+
 

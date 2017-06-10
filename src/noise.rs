@@ -50,6 +50,18 @@ impl CryptoResolver for DefaultResolver {
     }
 }
 
+#[derive(PartialEq)]
+pub struct Keypair {
+    pub private: Vec<u8>,
+    pub public:  Vec<u8>,
+}
+
+impl<'a> From<&'a Dh> for Keypair {
+    fn from(dh: &'a Dh) -> Self {
+        Keypair { private: dh.privkey().to_owned(), public: dh.pubkey().to_owned() }
+    }
+}
+
 /// Generates a `NoiseSession` and also validate that all the prerequisites for
 /// the given parameters are satisfied.
 ///
@@ -67,13 +79,15 @@ impl CryptoResolver for DefaultResolver {
 ///                          .unwrap();
 /// ```
 pub struct NoiseBuilder<'builder> {
-    params:   NoiseParams,
-    resolver: Box<CryptoResolver>,
-    s:        Option<&'builder [u8]>,
-    e_fixed:  Option<&'builder [u8]>,
-    rs:       Option<&'builder [u8]>,
-    psks:     [Option<&'builder [u8]>; 10],
-    plog:     Option<&'builder [u8]>,
+    params:       NoiseParams,
+    resolver:     Box<CryptoResolver>,
+    s:            Option<&'builder [u8]>,
+    e_fixed:      Option<&'builder [u8]>,
+    rs:           Option<&'builder [u8]>,
+    psks:         [Option<&'builder [u8]>; 10],
+    plog:         Option<&'builder [u8]>,
+    resolved_rng: Option<Box<Random>>,
+    resolved_dh:  Option<Box<Dh>>,
 }
 
 impl<'builder> NoiseBuilder<'builder> {
@@ -99,6 +113,8 @@ impl<'builder> NoiseBuilder<'builder> {
             rs: None,
             plog: None,
             psks: [None; 10],
+            resolved_rng: None,
+            resolved_dh: None,
         }
     }
 
@@ -132,18 +148,15 @@ impl<'builder> NoiseBuilder<'builder> {
         self
     }
 
-    // TODO this is inefficient as it computes the public key then throws it away
-    // TODO also inefficient because it creates a new RNG and DH instance just for this.
     /// Generate a new private key. It's up to the user of this library how to store this.
-    pub fn generate_private_key(&self) -> Result<Vec<u8>> {
-        let mut rng = self.resolver.resolve_rng()
-            .ok_or(ErrorKind::Init(InitStage::GetRngImpl))?;
-        let mut dh = self.resolver.resolve_dh(&self.params.dh)
-            .ok_or(ErrorKind::Init(InitStage::GetDhImpl))?;
-        let mut private = vec![0u8; dh.priv_len()];
+    pub fn generate_keypair(&mut self) -> Result<Keypair> {
+        let mut rng = self.resolver.resolve_rng().ok_or(ErrorKind::Init(InitStage::GetRngImpl))?;
+        let mut dh = self.resolver.resolve_dh(&self.params.dh).ok_or(ErrorKind::Init(InitStage::GetDhImpl))?;
         dh.generate(&mut *rng);
-        private[..dh.priv_len()].copy_from_slice(dh.privkey());
-        Ok(private)
+        let keypair = Keypair::from(&*dh);
+        self.resolved_rng = Some(rng);
+        self.resolved_dh = Some(dh);
+        Ok(keypair)
     }
 
     /// Build a NoiseSession for the side who will initiate the handshake (send the first message)
@@ -165,10 +178,19 @@ impl<'builder> NoiseBuilder<'builder> {
             bail!(ErrorKind::Prereq(Prerequisite::RemotePublicKey));
         }
 
-        let rng = self.resolver.resolve_rng().ok_or(ErrorKind::Init(InitStage::GetRngImpl))?;
+        let rng = match self.resolved_rng {
+            Some(r) => r,
+            None => self.resolver.resolve_rng().ok_or(ErrorKind::Init(InitStage::GetRngImpl))?
+        };
+
         let cipher = self.resolver.resolve_cipher(&self.params.cipher).ok_or(ErrorKind::Init(InitStage::GetCipherImpl))?;
         let hash = self.resolver.resolve_hash(&self.params.hash).ok_or(ErrorKind::Init(InitStage::GetHashImpl))?;
-        let mut s_dh = self.resolver.resolve_dh(&self.params.dh).ok_or(ErrorKind::Init(InitStage::GetDhImpl))?;
+
+        let mut s_dh = match self.resolved_dh {
+            Some(d) => d,
+            None => self.resolver.resolve_dh(&self.params.dh).ok_or(ErrorKind::Init(InitStage::GetDhImpl))?
+        };
+
         let mut e_dh = self.resolver.resolve_dh(&self.params.dh).ok_or(ErrorKind::Init(InitStage::GetDhImpl))?;
         let cipher1 = self.resolver.resolve_cipher(&self.params.cipher).ok_or(ErrorKind::Init(InitStage::GetCipherImpl))?;
         let cipher2 = self.resolver.resolve_cipher(&self.params.cipher).ok_or(ErrorKind::Init(InitStage::GetCipherImpl))?;
@@ -238,9 +260,9 @@ mod tests {
 
     #[test]
     fn test_builder_keygen() {
-        let builder = NoiseBuilder::new("Noise_NN_25519_ChaChaPoly_SHA256".parse().unwrap());
-        let key1 = builder.generate_private_key();
-        let key2 = builder.generate_private_key();
+        let mut builder = NoiseBuilder::new("Noise_NN_25519_ChaChaPoly_SHA256".parse().unwrap());
+        let key1 = builder.generate_keypair();
+        let key2 = builder.generate_keypair();
         assert!(key1.unwrap() != key2.unwrap());
     }
 
