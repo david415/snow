@@ -89,11 +89,8 @@ impl Dh for Dh25519 {
         &self.privkey
     }
 
-    // TODO avoid need to copy into sized array
     fn dh(&self, pubkey: &[u8], out: &mut [u8]) {
-        let mut sized_pubkey = [0u8; 32];
-        copy_memory(&pubkey[..32], &mut sized_pubkey);
-        let result = x25519::diffie_hellman(&self.privkey, &sized_pubkey);
+        let result = x25519::diffie_hellman(&self.privkey, array_ref![pubkey, 0, 32]);
         copy_memory(&result, out);
     }
 }
