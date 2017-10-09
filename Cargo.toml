@@ -29,6 +29,7 @@ rand = "^0.3"
 static_slice = "0.0.3"
 blake2-rfc = "^0.2"
 chacha20-poly1305-aead = "^0.1"
+x25519-dalek = { git = "https://github.com/isislovecruft/x25519-dalek" }
 ring = { version = "^0.12", optional = true }
 
 [dev-dependencies]
