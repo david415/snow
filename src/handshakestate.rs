@@ -284,6 +284,13 @@ impl HandshakeState {
         Ok(payload_len)
     }
 
+    /// Specify a PSK (only used with `NoisePSK` base parameter)
+    pub fn set_psk(&mut self, location: u8, key: &[u8]) {
+        let mut new_psk = [0u8; PSKLEN];
+        new_psk.copy_from_slice(&key[..]);
+        self.psks[location as usize] = Some(new_psk);
+    }
+    
     pub fn get_remote_static(&self) -> Option<&[u8; MAXDHLEN]> {
         self.rs.as_option_ref()
     }
