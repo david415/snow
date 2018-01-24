@@ -40,12 +40,8 @@ impl<T> Toggle<T> {
         self.on
     }
 
-    pub fn as_option_ref(&self) -> Option<&T> {
-        if self.on {
-            Some(&self.inner)
-        } else {
-            None
-        }
+    pub fn as_ref(&self) -> &T {
+        &self.inner
     }
 }
 

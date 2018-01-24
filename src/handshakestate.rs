@@ -291,8 +291,12 @@ impl HandshakeState {
         self.psks[location as usize] = Some(new_psk);
     }
     
-    pub fn get_remote_static(&self) -> Option<&[u8; MAXDHLEN]> {
-        self.rs.as_option_ref()
+    pub fn get_remote_static(&self) -> Option<&[u8]> {
+        if self.rs.is_on() {
+            Some(&self.rs.as_ref()[..self.s.pub_len()])
+        } else {
+            None
+        }
     }
 
     pub fn finish(self) -> Result<(CipherStates, HandshakeChoice)> {
