@@ -48,6 +48,13 @@ impl Session {
         }
     }
 
+    pub fn is_initiator(&self) -> bool {
+        match *self {
+            Session::Handshake(ref state) => state.is_initiator(),
+            Session::Transport(ref state) => state.is_initiator(),
+        }
+    }
+
     /// Construct a message from `payload` (and pending handshake tokens if in handshake state),
     /// and writes it to the `output` buffer.
     ///
