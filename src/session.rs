@@ -134,6 +134,18 @@ impl Session {
         }
     }
 
+    /// Get the remote static key that was possibly encrypted in the first payload
+    ///
+    /// # Caveat
+    ///
+    /// This currently does not work *after* transitioning into the transport state.
+    pub fn get_remote_static(&self) -> Option<&[u8]> {
+        match *self {
+            Session::Handshake(ref state) => state.get_remote_static(),
+            Session::Transport(_) => None
+        }
+    }
+
     /// Set the forthcoming incoming nonce value.
     ///
     /// # Errors
