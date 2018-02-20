@@ -31,7 +31,7 @@ static_slice = "0.0.3"
 blake2-rfc = "^0.2"
 chacha20-poly1305-aead = "^0.1"
 ring = { version = "0.13.0-alpha", optional = true }
-x25519-dalek = { git = "https://github.com/isislovecruft/x25519-dalek" }
+x25519-dalek = "^0.1"
 
 [dev-dependencies]
 clap = "^2.0"
