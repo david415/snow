@@ -2,6 +2,9 @@ extern crate crypto;
 extern crate blake2_rfc;
 extern crate chacha20_poly1305_aead;
 extern crate x25519_dalek;
+extern crate hacl_star;
+
+use self::hacl_star::{curve25519, And, chacha20poly1305::{ChaCha20Poly1305, Key, Nonce}};
 
 use self::crypto::digest::Digest;
 use self::crypto::sha2::{Sha256, Sha512};
@@ -18,6 +21,11 @@ use types::*;
 use constants::*;
 use utils::copy_memory;
 use std::io::{Cursor, Write};
+
+const BASEPOINT: [u8; 32] = [0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
 #[derive(Default)]
 pub struct Dh25519 {
@@ -52,7 +60,6 @@ pub struct HashBLAKE2s {
 }
 
 impl Dh for Dh25519 {
-
     fn name(&self) -> &'static str {
         static NAME: &'static str = "25519";
         NAME
@@ -77,8 +84,7 @@ impl Dh for Dh25519 {
         self.privkey[0]  &= 248;
         self.privkey[31] &= 127;
         self.privkey[31] |= 64;
-        let pubkey = x25519::generate_public(&self.privkey);
-        copy_memory(pubkey.as_bytes(), &mut self.pubkey);
+        curve25519::scalarmult(&mut self.pubkey, &self.privkey, &BASEPOINT);
     }
 
     fn pubkey(&self) -> &[u8] {
@@ -90,8 +96,11 @@ impl Dh for Dh25519 {
     }
 
     fn dh(&self, pubkey: &[u8], out: &mut [u8]) {
-        let result = x25519::diffie_hellman(&self.privkey, array_ref![pubkey, 0, 32]);
-        copy_memory(&result, out);
+        let mut out_sized = [0u8; 32];
+        let mut pub_sized = [0u8; 32];
+        pub_sized.copy_from_slice(&pubkey[..32]);
+        curve25519::scalarmult(&mut out_sized, &self.privkey, &pub_sized);
+        out[..32].copy_from_slice(&out_sized);
     }
 }
 
@@ -143,41 +152,58 @@ impl Cipher for CipherChaChaPoly {
 
     fn encrypt(&self, nonce: u64, authtext: &[u8], plaintext: &[u8], out: &mut [u8]) -> usize {
         let mut nonce_bytes = [0u8; 12];
+        let mut mac = [0u8; 16];
         LittleEndian::write_u64(&mut nonce_bytes[4..], nonce);
 
-        let mut buf = Cursor::new(out);
-        let tag = chacha20_poly1305_aead::encrypt(&self.key, &nonce_bytes, authtext, plaintext, &mut buf);
-        let tag = tag.unwrap();
-        buf.write_all(&tag).unwrap();
-        if buf.position() > usize::max_value() as u64 {
-            panic!("usize overflow");
-        } else {
-            buf.position() as usize
-        }
+//        let mut buf = Cursor::new(out);
+//        let tag = chacha20_poly1305_aead::encrypt(&self.key, &nonce_bytes, authtext, plaintext, &mut buf);
+//        let tag = tag.unwrap();
+//        buf.write_all(&tag).unwrap();
+//        if buf.position() > usize::max_value() as u64 {
+//            panic!("usize overflow");
+//        } else {
+//            buf.position() as usize
+//        }
+        out[..plaintext.len()].copy_from_slice(plaintext);
+        let aead = And(Key(&self.key), Nonce(&nonce_bytes));
+        aead.encrypt(authtext, out, &mut mac);
+        out[plaintext.len()..plaintext.len()+16].copy_from_slice(&mac);
+        plaintext.len() + 16
     }
 
     fn decrypt(&self, nonce: u64, authtext: &[u8], ciphertext: &[u8], out: &mut [u8]) -> Result<usize, ()> {
         let mut nonce_bytes = [0u8; 12];
         LittleEndian::write_u64(&mut nonce_bytes[4..], nonce);
+        let mut mac = [0u8; 16];
+        out[..ciphertext.len()-16].copy_from_slice(&ciphertext[..ciphertext.len()-16]);
+        mac.copy_from_slice(&ciphertext[ciphertext.len()-16..ciphertext.len()]);
+        let aead = And(Key(&self.key), Nonce(&nonce_bytes));
+        let result = aead.decrypt(authtext, &mut out[..ciphertext.len()-16], &mac);
 
-        let mut buf = Cursor::new(out);
-        let result = chacha20_poly1305_aead::decrypt(
-            &self.key,
-            &nonce_bytes,
-            authtext,
-            &ciphertext[..ciphertext.len()-TAGLEN],
-            &ciphertext[ciphertext.len()-TAGLEN..],
-            &mut buf);
-        match result {
-            Ok(_) => {
-                if buf.position() > usize::max_value() as u64 {
-                    panic!("usize overflow");
-                } else {
-                    Ok(buf.position() as usize)
-                }
-            }
-            Err(_) => Err(()),
+        if result {
+            Ok(ciphertext.len()-16)
+        } else {
+            Err(())
         }
+
+//        let mut buf = Cursor::new(out);
+//        let result = chacha20_poly1305_aead::decrypt(
+//            &self.key,
+//            &nonce_bytes,
+//            authtext,
+//            &ciphertext[..ciphertext.len()-TAGLEN],
+//            &ciphertext[ciphertext.len()-TAGLEN..],
+//            &mut buf);
+//        match result {
+//            Ok(_) => {
+//                if buf.position() > usize::max_value() as u64 {
+//                    panic!("usize overflow");
+//                } else {
+//                    Ok(buf.position() as usize)
+//                }
+//            }
+//            Err(_) => Err(()),
+//        }
     }
 }
 
